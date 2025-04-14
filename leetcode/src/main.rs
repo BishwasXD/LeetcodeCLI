@@ -1,3 +1,4 @@
+use ::std::env;
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -37,17 +38,21 @@ struct Info {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
-    let body = r#"{
-        "operationName": "getQuestionDetail",
-        "variables": {
-            "titleSlug": "add-two-numbers"
-        },
-        "query": "query getQuestionDetail($titleSlug: String!) { question(titleSlug: $titleSlug) { questionId title content codeSnippets { lang langSlug code } } }"
-    }"#;
+async fn fetch_question(question: &str, lang_arg: &str) -> Result<(), reqwest::Error> {
+
+    let body = format!(
+        r#"{{
+    "operationName": "getQuestionDetail",
+    "variables": {{
+        "titleSlug": "{}"
+    }},
+    "query": "query getQuestionDetail($titleSlug: String!) {{ question(titleSlug: $titleSlug) {{ questionId title content codeSnippets {{ lang langSlug code }} }} }}"
+}}"#,
+        question
+    );
 
     let client = reqwest::Client::new();
-    let mut response = client
+    let response = client
         .post("https://leetcode.com/graphql")
         .header("Content-Type", "application/json")
         .body(body)
@@ -58,16 +63,36 @@ async fn main() -> Result<(), reqwest::Error> {
     let info: Info = Info {
         title: parsed.data.question.title,
         content: parsed.data.question.content,
-        code: get_lang_code(&parsed.data.question.codeSnippets, "Java"),
-        language: "Java".to_owned(),
+        code: get_lang_code(&parsed.data.question.codeSnippets, lang_arg),
+        language: lang_arg.to_owned(),
     };
 
-    println!("THIS IS ACTUAL USEFUL INFO {:?}", info);
-    let path: &str = "test.java";
+    let path: String = format!("{}.{}", question, lang_arg);
     let mut file = File::create(path).expect("Error creating a file");
-    let file_content: String = format!("{}{}{}", info.title, strip_html_tags(& info.content), info.code);
-    file.write_all(file_content.as_bytes()).expect("Error writing in file");
+    let file_content: String = format!(
+        "/*{}{}{}*/{}{}",
+        "/n",
+        info.title,
+        strip_html_tags(&info.content),
+        "/n",
+        info.code
+    );
+    file.write_all(file_content.as_bytes())
+        .expect("Error writing in file");
     Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let main_arg: &str = &args[1];
+    let question: &str = &args[2];
+    let lang_arg: &str = &args[3];
+
+    match main_arg {
+        "fetch" => fetch_question(question, lang_arg).expect("Error while fetching Question"),
+        "submit" => println!("yo submit this"),
+        _ => panic!("command not recognized"),
+    }
 }
 fn get_lang_code(snippets: &[CodeSnippet], lang: &str) -> String {
     snippets
